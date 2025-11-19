@@ -17,7 +17,7 @@ app.add_middleware(
 @app.middleware("http")
 async def add_cors_header(request: Request, call_next):
     response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = "https://gf7ef8efb74e614-ys0k48631ld4v415.adb.us-phoenix-1.oraclecloudapps.com"  # ← tu APEX
+    response.headers["Access-Control-Allow-Origin"] = "https://gf7ef8efb74e614-ys0k48631ld4v41.adb.us-phoenix-1.oraclecloudapps.com"  # ← tu APEX
     response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "*"
     response.headers["Access-Control-Allow-Credentials"] = "true"
