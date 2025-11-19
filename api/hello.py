@@ -1,8 +1,17 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, FileResponse
+from fastapi.middleware.cors import CORSMiddleware
 import os
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],   # ← permite TODO temporalmente
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Esto evita TODOS los problemas de CORS en Vercel + APEX
 @app.middleware("http")
