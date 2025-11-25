@@ -1,5 +1,4 @@
-# api/index.py
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -8,19 +7,38 @@ from docxtpl import DocxTemplate
 import json
 import io
 import os
-####
 
 app = FastAPI(title="Catastro → DOCX", version="1.0")
 
-# CORS con wildcard (la única forma que funciona confiable en Vercel)
+# CORS Middleware (por si acaso)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Permitir TODOS los orígenes
-    allow_credentials=False,  # DEBE ser False cuando origins es "*" 
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],
 )
+
+# Middleware que SOLUCIONA el problema de CORS en Vercel (¡EL IMPORTANTE!)
+@app.middleware("http")
+async def cors_and_preflight_middleware(request: Request, call_next):
+    # Manejar preflight OPTIONS directamente
+    if request.method == "OPTIONS":
+        response = JSONResponse(content={"detail": "OK"})
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Max-Age"] = "86400"
+        return response
+
+    # Para todas las demás peticiones
+    response = await call_next(request)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
+
 
 # === Modelos Pydantic ===
 class Terreno(BaseModel):
@@ -58,75 +76,62 @@ class DocumentoCatastral(BaseModel):
     archivo: str
     predio: List[Predio]
 
+
 # === Endpoints ===
 @app.get("/")
 @app.get("/api")
 async def root():
     return {
-        "message": "API FastAPI en Vercel + APEX funcionando 🚀",
+        "message": "API FastAPI + Vercel + Oracle APEX → FUNCIONANDO",
         "status": "ok",
-        "cors": "enabled (wildcard)",
-        "note": "CORS configurado para aceptar todos los orígenes"
+        "cors": "100% habilitado con middleware personalizado",
+        "endpoints": ["/api", "/api/test-cors", "/api/generar-docx"]
     }
 
 @app.get("/api/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "cors": "enabled",
-        "endpoints": ["/api/generar-docx"]
-    }
+async def health():
+    return {"status": "healthy", "cors": "ok"}
 
 @app.get("/api/test-cors")
 async def test_cors():
-    return {
-        "message": "Si ves esto, CORS funciona correctamente",
-        "cors": "OK ✅"
-    }
+    return {"message": "¡CORS funciona perfectamente desde Oracle APEX!", "status": "OK"}
 
 @app.post("/api/generar-docx")
 async def generar_docx(file: UploadFile = File(...)):
-    """Genera un documento DOCX a partir de un JSON validado"""
-    
-    # Validar extensión
     if not file.filename.endswith(".json"):
         raise HTTPException(400, "Solo se permiten archivos .json")
-    
-    # Leer y validar JSON
+
     try:
         content = await file.read()
         data = json.loads(content.decode("utf-8"))
         doc_data = DocumentoCatastral.model_validate(data)
     except json.JSONDecodeError as e:
-        raise HTTPException(422, f"JSON inválido: {str(e)}")
+        raise HTTPException(422, f"JSON inválido: {e}")
     except Exception as e:
-        raise HTTPException(422, f"Error de validación: {str(e)}")
-    
-    # Cargar plantilla
-    template_path = "1785-003.docx"
+        raise HTTPException(422, f"Error de validación: {e}")
+
+    template_path = "templates/1785-003.docx"
     if not os.path.exists(template_path):
-        raise HTTPException(500, f"Plantilla {template_path} no encontrada")
-    
+        raise HTTPException(500, "Plantilla no encontrada en /templates")
+
     try:
         doc = DocxTemplate(template_path)
         doc.render(doc_data.model_dump())
-        
-        # Generar archivo en memoria
+
         output = io.BytesIO()
         doc.save(output)
         output.seek(0)
-        
-        # Nombre del archivo
+
         nombre_archivo = doc_data.archivo
-        if not nombre_archivo.endswith(".docx"):
-            nombre_archivo = f"{nombre_archivo}.docx"
-        
+        if not nombre_archivo.lower().endswith(".docx"):
+            nombre_archivo += ".docx"
+
         return StreamingResponse(
             output,
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
-                "Content-Disposition": f'attachment; filename="{nombre_archivo}"',
+                "Content-Disposition": f'attachment; filename="{nombre_archivo}"'
             }
         )
     except Exception as e:
-        raise HTTPException(500, f"Error generando documento: {str(e)}")
+        raise HTTPException(500, f"Error al generar DOCX: {str(e)}")
