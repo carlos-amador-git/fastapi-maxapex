@@ -9,6 +9,7 @@ import json
 import io
 import os
 
+
 app = FastAPI(title="Catastro → DOCX", version="1.0")
 
 # CORS con wildcard (la única forma que funciona confiable en Vercel)
