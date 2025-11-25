@@ -99,7 +99,7 @@ async def generar_docx(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(422, f"Error en JSON o validación: {str(e)}")
 
-    template_path = "templates/template.docx"
+    template_path = "1785-003.docx"
     if not os.path.exists(template_path):
         raise HTTPException(500, "Plantilla template.docx no encontrada")
 
