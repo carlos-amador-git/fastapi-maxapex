@@ -1,7 +1,6 @@
 # api/index.py
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
-from fastapi.responses import StreamingResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from docxtpl import DocxTemplate
@@ -11,22 +10,51 @@ import os
 
 app = FastAPI(title="Catastro → DOCX", version="1.0")
 
-# CORS configurado CORRECTAMENTE
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://gf7ef8efb74e614-h00tgkrff41zo9rl.adb.us-phoenix-1.oraclecloudapps.com",
-        "https://gf7ef8efb74e614-ys0k48631ld4v415.adb.us-phoenix-1.oraclecloudapps.com",
-        "https://censoedomex.maxapex.net",
-        "http://localhost:3000",  # Para pruebas locales
-    ],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["*"],
-    expose_headers=["Content-Disposition"],
-)
+# === CORS Manual (Método más confiable en Vercel) ===
+ALLOWED_ORIGINS = [
+    "https://gf7ef8efb74e614-h00tgkrff41zo9rl.adb.us-phoenix-1.oraclecloudapps.com",
+    "https://gf7ef8efb74e614-ys0k48631ld4v415.adb.us-phoenix-1.oraclecloudapps.com",
+    "https://censoedomex.maxapex.net",
+    "http://localhost:3000",
+]
 
-# === Modelos Pydantic (CORREGIDOS) ===
+def get_cors_headers(origin: str = None):
+    """Genera headers CORS dinámicamente"""
+    # Si el origin está en la lista permitida, úsalo; si no, usa el primero
+    allowed_origin = origin if origin in ALLOWED_ORIGINS else ALLOWED_ORIGINS[0]
+    
+    return {
+        "Access-Control-Allow-Origin": allowed_origin,
+        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Expose-Headers": "Content-Disposition",
+        "Access-Control-Max-Age": "3600",
+    }
+
+@app.middleware("http")
+async def add_cors_middleware(request: Request, call_next):
+    """Middleware para agregar CORS a TODAS las respuestas"""
+    origin = request.headers.get("origin", "")
+    
+    # Manejar preflight OPTIONS
+    if request.method == "OPTIONS":
+        return Response(
+            status_code=200,
+            headers=get_cors_headers(origin)
+        )
+    
+    # Procesar request normal
+    response = await call_next(request)
+    
+    # Agregar headers CORS a la respuesta
+    cors_headers = get_cors_headers(origin)
+    for key, value in cors_headers.items():
+        response.headers[key] = value
+    
+    return response
+
+# === Modelos Pydantic ===
 class Terreno(BaseModel):
     valor_terreno_propio: int = Field(..., ge=0)
     metros_terreno_propio: Optional[float] = None
@@ -66,7 +94,21 @@ class DocumentoCatastral(BaseModel):
 @app.get("/")
 @app.get("/api")
 async def root():
-    return {"message": "API FastAPI en Vercel + APEX funcionando 🚀", "status": "ok"}
+    return {
+        "message": "API FastAPI en Vercel + APEX funcionando 🚀",
+        "status": "ok",
+        "cors": "enabled",
+        "allowed_origins": ALLOWED_ORIGINS
+    }
+
+@app.get("/api/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "cors": "enabled",
+        "endpoints": ["/api/generar-docx"],
+        "allowed_origins": ALLOWED_ORIGINS
+    }
 
 @app.post("/api/generar-docx")
 async def generar_docx(file: UploadFile = File(...)):
@@ -110,17 +152,12 @@ async def generar_docx(file: UploadFile = File(...)):
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             headers={
                 "Content-Disposition": f'attachment; filename="{nombre_archivo}"',
-                "Access-Control-Expose-Headers": "Content-Disposition",
             }
         )
     except Exception as e:
         raise HTTPException(500, f"Error generando documento: {str(e)}")
 
-# Endpoint de salud para verificar CORS
-@app.get("/api/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "cors": "enabled",
-        "endpoints": ["/api/generar-docx"]
-    }
+# Endpoint de prueba simple
+@app.get("/api/test-cors")
+async def test_cors():
+    return {"message": "Si ves esto, CORS está funcionando correctamente"}
