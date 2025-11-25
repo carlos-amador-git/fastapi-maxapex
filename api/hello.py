@@ -15,7 +15,7 @@ app = FastAPI(title="Catastro → DOCX", version="1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Permitir TODOS los orígenes
-    allow_credentials=False,  # DEBE ser False cuando origins es "*"
+    allow_credentials=False,  # DEBE ser False cuando origins es "*" 
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],
