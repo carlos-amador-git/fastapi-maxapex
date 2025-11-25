@@ -44,7 +44,8 @@ async def preflight_handler():
 @app.middleware("http")
 async def add_cors_headers(request: Request, call_next):
     response = await call_next(request)
-    response.headers["Access-Control-Allow-Origin"] = "https://gf7ef8efb74e614-ys0k48631ld4v415.adb.us-phoenix-1.oraclecloudapps.com"
+    #response.headers["Access-Control-Allow-Origin"] = "https://gf7ef8efb74e614-ys0k48631ld4v415.adb.us-phoenix-1.oraclecloudapps.com"
+    response.headers["Access-Control-Allow-Origin"] = "https://gf7ef8efb74e614-h00tgkrff41zo9rl.adb.us-phoenix-1.oraclecloudapps.com"
     #response.headers["Access-Control-Allow-Origin"] = "https://censoedomex.maxapex.net"
     response.headers["Access-Control-Allow-Credentials"] = "true"
     return response
