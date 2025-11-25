@@ -1,56 +1,32 @@
-# api/index.py   ← este debe ser el nombre exacto del archivo
-
-##from fastapi import FastAPI, Request
-##from fastapi.responses import JSONResponse, FileResponse
-##from fastapi.middleware.cors import CORSMiddleware
-##import os
-
+# api/index.py
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from typing import List, Optional
 from docxtpl import DocxTemplate
 import json
 import io
 import os
 
-##app = FastAPI()
 app = FastAPI(title="Catastro → DOCX", version="1.0")
 
-# CORS amplio (puedes restringirlo después)
+# CORS configurado CORRECTAMENTE
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://gf7ef8efb74e614-h00tgkrff41zo9rl.adb.us-phoenix-1.oraclecloudapps.com",
+        "https://gf7ef8efb74e614-ys0k48631ld4v415.adb.us-phoenix-1.oraclecloudapps.com",
+        "https://censoedomex.maxapex.net",
+        "http://localhost:3000",  # Para pruebas locales
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
-# Esto es lo IMPORTANTE: capturar OPTIONS en TODAS las rutas incluyendo /api/*
-@app.options("/api/{full_path:path}")
-@app.options("/{full_path:path}")
-async def preflight_handler():
-    return JSONResponse(
-        status_code=200,
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-            "Access-Control-Allow-Headers": "*",
-            "Access-Control-Allow-Credentials": "true",
-        }
-    )
-
-# Middleware para forzar headers en todas las respuestas (por si acaso)
-@app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
-    response = await call_next(request)
-    #response.headers["Access-Control-Allow-Origin"] = "https://gf7ef8efb74e614-ys0k48631ld4v415.adb.us-phoenix-1.oraclecloudapps.com"
-    response.headers["Access-Control-Allow-Origin"] = "https://gf7ef8efb74e614-h00tgkrff41zo9rl.adb.us-phoenix-1.oraclecloudapps.com"
-    #response.headers["Access-Control-Allow-Origin"] = "https://censoedomex.maxapex.net"
-    response.headers["Access-Control-Allow-Credentials"] = "true"
-    return response
-
-# === Tus modelos Pydantic (sin cambios) ===
+# === Modelos Pydantic (CORREGIDOS) ===
 class Terreno(BaseModel):
     valor_terreno_propio: int = Field(..., ge=0)
     metros_terreno_propio: Optional[float] = None
@@ -85,57 +61,66 @@ class Predio(BaseModel):
 class DocumentoCatastral(BaseModel):
     archivo: str
     predio: List[Predio]
-    
-# Tu endpoint real (ahora con la ruta correcta)
-@app.get("/api/generar-docx")
+
+# === Endpoints ===
+@app.get("/")
+@app.get("/api")
+async def root():
+    return {"message": "API FastAPI en Vercel + APEX funcionando 🚀", "status": "ok"}
+
 @app.post("/api/generar-docx")
 async def generar_docx(file: UploadFile = File(...)):
+    """Genera un documento DOCX a partir de un JSON validado"""
+    
+    # Validar extensión
     if not file.filename.endswith(".json"):
         raise HTTPException(400, "Solo se permiten archivos .json")
-
+    
+    # Leer y validar JSON
     try:
         content = await file.read()
         data = json.loads(content.decode("utf-8"))
         doc_data = DocumentoCatastral.model_validate(data)
+    except json.JSONDecodeError as e:
+        raise HTTPException(422, f"JSON inválido: {str(e)}")
     except Exception as e:
-        raise HTTPException(422, f"Error en JSON o validación: {str(e)}")
-
+        raise HTTPException(422, f"Error de validación: {str(e)}")
+    
+    # Cargar plantilla
     template_path = "1785-003.docx"
     if not os.path.exists(template_path):
-        raise HTTPException(500, "Plantilla template.docx no encontrada")
+        raise HTTPException(500, f"Plantilla {template_path} no encontrada")
+    
+    try:
+        doc = DocxTemplate(template_path)
+        doc.render(doc_data.model_dump())
+        
+        # Generar archivo en memoria
+        output = io.BytesIO()
+        doc.save(output)
+        output.seek(0)
+        
+        # Nombre del archivo
+        nombre_archivo = doc_data.archivo
+        if not nombre_archivo.endswith(".docx"):
+            nombre_archivo = f"{nombre_archivo}.docx"
+        
+        return StreamingResponse(
+            output,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f'attachment; filename="{nombre_archivo}"',
+                "Access-Control-Expose-Headers": "Content-Disposition",
+            }
+        )
+    except Exception as e:
+        raise HTTPException(500, f"Error generando documento: {str(e)}")
 
-    doc = DocxTemplate(template_path)
-    doc.render(doc_data.model_dump())
-
-    output = io.BytesIO()
-    doc.save(output)
-    output.seek(0)
-
-    # Usar el nombre que viene en el JSON
-    nombre_archivo = doc_data.archivo if doc_data.archivo.endswith(".docx") else f"{doc_data.archivo}.docx"
-
-    return StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        headers={
-            "Content-Disposition": f"attachment; filename*=UTF-8''{nombre_archivo}",
-            "Access-Control-Expose-Headers": "Content-Disposition",
-        }
-    )
-##async def generar_docx():
-  ##  pdf_path = "sample.pdf"  # ← cambia por tu lógica real de generación
-
-    ##if not os.path.exists(pdf_path):
-      ##  return JSONResponse({"error": "Archivo no encontrado"}, status_code=404)
-
-    ##return FileResponse(
-      ##  pdf_path,
-       ## media_type="application/pdf",
-        ##filename="Datos históricos por sitio.pdf"
-    ##)
-
-# Ruta de prueba
-@app.get("/")
-@app.get("/api")
-async def root():
-    return {"message": "API FastAPI en Vercel + APEX funcionando al 100% 🚀"}
+# Endpoint de salud para verificar CORS
+@app.get("/api/health")
+async def health_check():
+    return {
+        "status": "healthy",
+        "cors": "enabled",
+        "endpoints": ["/api/generar-docx"]
+    }
