@@ -1,6 +1,7 @@
 # api/index.py
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request
-from fastapi.responses import StreamingResponse, JSONResponse, Response
+from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from docxtpl import DocxTemplate
@@ -10,49 +11,15 @@ import os
 
 app = FastAPI(title="Catastro → DOCX", version="1.0")
 
-# === CORS Manual (Método más confiable en Vercel) ===
-ALLOWED_ORIGINS = [
-    "https://gf7ef8efb74e614-h00tgkrff41zo9rl.adb.us-phoenix-1.oraclecloudapps.com",
-    "https://gf7ef8efb74e614-ys0k48631ld4v415.adb.us-phoenix-1.oraclecloudapps.com",
-    "https://censoedomex.maxapex.net",
-    "http://localhost:3000",
-]
-
-def get_cors_headers(origin: str = None):
-    """Genera headers CORS dinámicamente"""
-    # Si el origin está en la lista permitida, úsalo; si no, usa el primero
-    allowed_origin = origin if origin in ALLOWED_ORIGINS else ALLOWED_ORIGINS[0]
-    
-    return {
-        "Access-Control-Allow-Origin": allowed_origin,
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-        "Access-Control-Allow-Credentials": "true",
-        "Access-Control-Expose-Headers": "Content-Disposition",
-        "Access-Control-Max-Age": "3600",
-    }
-
-@app.middleware("http")
-async def add_cors_middleware(request: Request, call_next):
-    """Middleware para agregar CORS a TODAS las respuestas"""
-    origin = request.headers.get("origin", "")
-    
-    # Manejar preflight OPTIONS
-    if request.method == "OPTIONS":
-        return Response(
-            status_code=200,
-            headers=get_cors_headers(origin)
-        )
-    
-    # Procesar request normal
-    response = await call_next(request)
-    
-    # Agregar headers CORS a la respuesta
-    cors_headers = get_cors_headers(origin)
-    for key, value in cors_headers.items():
-        response.headers[key] = value
-    
-    return response
+# CORS con wildcard (la única forma que funciona confiable en Vercel)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Permitir TODOS los orígenes
+    allow_credentials=False,  # DEBE ser False cuando origins es "*"
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
+)
 
 # === Modelos Pydantic ===
 class Terreno(BaseModel):
@@ -97,8 +64,8 @@ async def root():
     return {
         "message": "API FastAPI en Vercel + APEX funcionando 🚀",
         "status": "ok",
-        "cors": "enabled",
-        "allowed_origins": ALLOWED_ORIGINS
+        "cors": "enabled (wildcard)",
+        "note": "CORS configurado para aceptar todos los orígenes"
     }
 
 @app.get("/api/health")
@@ -106,8 +73,14 @@ async def health_check():
     return {
         "status": "healthy",
         "cors": "enabled",
-        "endpoints": ["/api/generar-docx"],
-        "allowed_origins": ALLOWED_ORIGINS
+        "endpoints": ["/api/generar-docx"]
+    }
+
+@app.get("/api/test-cors")
+async def test_cors():
+    return {
+        "message": "Si ves esto, CORS funciona correctamente",
+        "cors": "OK ✅"
     }
 
 @app.post("/api/generar-docx")
@@ -156,8 +129,3 @@ async def generar_docx(file: UploadFile = File(...)):
         )
     except Exception as e:
         raise HTTPException(500, f"Error generando documento: {str(e)}")
-
-# Endpoint de prueba simple
-@app.get("/api/test-cors")
-async def test_cors():
-    return {"message": "Si ves esto, CORS está funcionando correctamente"}
